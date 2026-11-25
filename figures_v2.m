@@ -326,12 +326,12 @@ legend(findobj(gca, "-regexp", "DisplayName", "(Passive|Aggressive|Social)"), Lo
 exportPanel("FigS2B_profile_replication", opt);
 %%
 %[text] ## Letter: shape of each cohort's own space (Figure S1)
-%[text] Two versions of the t-ratio test (Hart et al. 2015). `alt.paretoTest` above is ParTI's, as in 2019: SISAL triangle, principal components shuffled. The one here uses the exact smallest enclosing triangle over the convex hull, with ID2 shuffled against ID1 across all mice or only among group mates. The cohort's own SISAL triangle is compared with the published one by vertex distance, by overlap, and by a bootstrap of whole groups.
+%[text] Two versions of the t-ratio test (Hart et al. 2015). `alt.paretoTest` above is ParTI's, as in 2019: SISAL triangle, principal components shuffled. The one here uses the smallest enclosing triangle (found numerically) over the convex hull, with ID2 shuffled against ID1 across all mice or only among group mates. The cohort's own SISAL triangle is compared with the published one by vertex distance, by overlap, and by a bootstrap of whole groups.
 shape = struct;
 for name = ["munich", "huji"]
     c = cohort.(name);
-    shape.(name) = exactTriangleTest(c.ID, c.GroupNumber, opt.nShuffles);
-    fprintf("%s: exact t-ratio %.3f; shuffled across all mice: median %.3f, P = %.4f; within groups: median %.3f, P = %.4f\n", opt.cohortNames(name), ...
+    shape.(name) = triangleShapeTest(c.ID, c.GroupNumber, opt.nShuffles);
+    fprintf("%s: t-ratio %.3f; shuffled across all mice: median %.3f, P = %.4f; within groups: median %.3f, P = %.4f\n", opt.cohortNames(name), ...
         shape.(name).tRatio, median(shape.(name).nullAll), shape.(name).pAll, median(shape.(name).nullWithin), shape.(name).pWithin);
 end
 fprintf("ParTI test of the Hebrew University cohort (SISAL, as in 2019): t-ratio %.3f, P = %.3f\n", alt.paretoTest.tRatio, alt.paretoTest.p);
@@ -462,7 +462,7 @@ disp(array2table(cellfun(@mean, hujiPairChases), VariableNames="to " + opt.verte
 disp(array2table(cellfun(@numel, hujiPairChases), VariableNames="pairs to " + opt.vertexNames, RowNames="from " + opt.vertexNames))
 %%
 %[text] ## Letter: dominance, chases and ID1 (Figure S3)
-%[text] Each mouse of the original cohort at its ID1 score and its mean normalized David's score, with the area of its circle scaled by its chase rate and its color the mixture of archetypes of Figure 1D. The score is built from displacements (`AggressiveChase.ChaseEscape`) while the circle size is the other kind of pursuit, so the vertical axis and the size come from disjoint events. Circle area is scaled linearly between the lowest and the highest chase rate, and the key marks the 10th, 50th and 90th percentiles.
+%[text] Each mouse of the original cohort at its ID1 score and its mean normalized David's score, with the area of its circle scaled by its chase rate and its color the mixture of archetypes of Figure 1D. The score is built from the aggressive chases (`AggressiveChase.ChaseEscape`) while the circle size counts every chase (`FollowRate`), which includes them, so the two are not independent. Circle area is scaled linearly between the lowest and the highest chase rate, and the key marks the 10th, 50th and 90th percentiles.
 c = cohort.munich;
 chaseRate = c.Behavior(:, strcmp(props, "FollowRate"));   % the Letter's chase rate
 ok = isfinite(c.David) & isfinite(chaseRate) & isfinite(c.ID(:, 1));
@@ -742,16 +742,20 @@ function result = replicateProfile(referenceR, predicted, c, nPermutations)
     result.pCorrelation = (1 + nnz(result.nullCorrelation >= result.correlation)) / (1 + nPermutations);
 end
 
-function result = exactTriangleTest(scores, group, nShuffles)
-    % exactTriangleTest__t-ratio of the smallest enclosing triangle against shuffled data.
-    %   The t-ratio is the area of the exact smallest enclosing triangle
-    %   (MyPareto.minEnclosingTriangle) over the area of the convex hull.
+function result = triangleShapeTest(scores, group, nShuffles)
+    % triangleShapeTest__t-ratio of the smallest enclosing triangle against shuffled data.
+    %   The t-ratio is the area of the smallest enclosing triangle
+    %   (MyPareto.minEnclosingTriangle, a grid search over the two free side
+    %   angles refined by fminsearch, so a numerical rather than a proven
+    %   minimum) over the area of the convex hull. Resolution does not matter
+    %   here: scoring observed data and shuffles at 90 or at 360 moves every
+    %   t-ratio by less than 1e-12 and leaves P unchanged.
     %   nullAll shuffles column 2 across all rows; nullWithin shuffles it only
     %   within each group. P = (1 + shuffles with a ratio at least as small) /
     %   (1 + shuffles).
     %
     %   Example
-    %       result = exactTriangleTest(cohort.huji.ID, cohort.huji.GroupNumber, 10000);
+    %       result = triangleShapeTest(cohort.huji.ID, cohort.huji.GroupNumber, 10000);
     arguments
         scores (:,2) double
         group (:,1) double
